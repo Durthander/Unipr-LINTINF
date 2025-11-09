@@ -1,0 +1,4 @@
+# File e cartelle da ignorare
+.DS_Store
+.vscode/
+.venv/

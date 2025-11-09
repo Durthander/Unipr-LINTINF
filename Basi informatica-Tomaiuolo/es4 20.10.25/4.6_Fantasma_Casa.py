@@ -1,0 +1,154 @@
+from random import choice, randrange
+from actor import Actor, Arena, Point
+from math import radians, sin, cos
+
+class Ball(Actor):
+    def __init__(self, pos):
+        self._x, self._y = pos
+        self._w, self._h = 20, 20
+        self._dx, self._dy = 4, 4
+
+    def move(self, arena: Arena):
+        for other in arena.collisions():
+            if not isinstance(other, Ghost):
+                x, y = other.pos()
+                if x < self._x:
+                    self._dx = abs(self._dx)
+                else:
+                    self._dx = -abs(self._dx)
+                if y < self._y:
+                    self._dy = abs(self._dy)
+                else:
+                    self._dy = -abs(self._dy)
+
+        arena_w, arena_h = arena.size()
+        if self._x + self._dx < 0:
+            self._dx = abs(self._dx)
+        elif self._x + self._dx > arena_w - self._w:
+            self._dx = -abs(self._dx)
+        if self._y + self._dy < 0:
+            self._dy = abs(self._dy)
+        elif self._y + self._dy > arena_h - self._h:
+            self._dy = -abs(self._dy)
+
+        self._x += self._dx
+        self._y += self._dy
+
+    def pos(self) -> Point:
+        return self._x, self._y
+
+    def size(self) -> Point:
+        return self._w, self._h
+
+    def sprite(self) -> Point:
+        return 0, 0
+
+
+class Ghost(Actor):
+    def __init__(self):
+        self._r = 100
+        self._ang = randrange(0, 360)
+        self._ix = (480/2) + randrange(self._r) * cos(radians(self._ang))
+        self._iy = (360/2) + randrange(self._r) * sin(radians(self._ang))
+        self._x, self._y = self._ix , self._iy 
+        self._w, self._h = 20, 20
+        self._visible = True
+        self._ipos = self._ix, self._iy
+
+    def move(self, arena: Arena):
+        aw, ah = arena.size()
+        dx = choice([-4, 0, 4])
+        dy = choice([-4, 0, 4])
+        self._x = (self._x + dx) % aw
+        self._y = (self._y + dy) % ah
+
+        if randrange(100) == 0:
+            self._visible = not self._visible
+        if randrange(1000) == 0:
+            arena.spawn(Ball(self.pos()))
+        
+        self.ritorno_casa(arena)
+
+    def pos(self) -> Point:
+        return self._x, self._y
+
+    def size(self) -> Point:
+        return self._w, self._h
+
+    def sprite(self) -> Point:
+        if self._visible:
+            return 20, 0
+        return 20, 20
+   
+    def ritorno_casa(self, arena: Arena):
+        keys = arena.current_keys()
+        if "h" in keys or "H" in keys:
+
+            self._x, self._y = self._ipos
+
+
+
+class Turtle(Actor):
+    def __init__(self, pos):
+        self._x, self._y = pos
+        self._w, self._h = 20, 20
+        self._speed = 2
+
+    def move(self, arena: Arena):
+        for other in arena.collisions():
+            if isinstance(other, Ball):
+                self.hit(arena)
+
+        keys = arena.current_keys()
+        if "ArrowUp" in keys:
+            self._y -= self._speed
+        elif "ArrowDown" in keys:
+            self._y += self._speed
+        if "ArrowLeft" in keys:
+            self._x -= self._speed
+        elif "ArrowRight" in keys:
+            self._x += self._speed
+
+        aw, ah = arena.size()
+        self._x = min(max(self._x, 0), aw - self._w)  # clamp
+        self._y = min(max(self._y, 0), ah - self._h)  # clamp
+
+    def hit(self, arena: Arena):
+        arena.kill(self)
+
+    def pos(self) -> Point:
+        return self._x, self._y
+
+    def size(self) -> Point:
+        return self._w, self._h
+
+    def sprite(self) -> Point:
+        return 0, 20
+
+
+def tick():
+    g2d.clear_canvas()
+    for a in arena.actors():
+        if a.sprite() != None:
+            g2d.draw_image("sprites.png", a.pos(), a.sprite(), a.size())
+        else:
+            pass  # g2d.draw_rect(a.pos(), a.size())
+
+    arena.tick(g2d.current_keys())  # Game logic
+
+
+def main():
+    global g2d, arena
+    import g2d  # game classes do not depend on g2d
+
+    arena = Arena((480, 360))
+    arena.spawn(Ball((40, 80)))
+    arena.spawn(Ball((80, 40)))
+    arena.spawn(Ghost())
+    arena.spawn(Turtle((230, 170)))
+
+    g2d.init_canvas(arena.size())
+    g2d.main_loop(tick)
+
+if __name__ == "__main__":
+    main()

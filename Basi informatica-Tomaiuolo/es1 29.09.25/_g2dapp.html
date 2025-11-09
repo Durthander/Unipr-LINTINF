@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>intro.py</title>
+        <meta charset="UTF-8">
+        <script src="https://cdn.jsdelivr.net/pyodide/dev/full/pyodide.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/BrowserFS/2.0.0/browserfs.min.js"></script>
+    </head>
+    <body>
+        <canvas id="g2d-canvas" style="border: 1px solid silver"></canvas>
+        <br><textarea id="console" rows="5" cols="50" readonly style="border: 0"></textarea>
+        <script>
+        async function main() {
+        window.languagePluginUrl = "./pyodide/";
+        let pyodide = await loadPyodide();
+        pyodide.runPython(`
+            import base64, io, js, os, shutil, sys, zipfile
+            app_data = '''UEsDBBQAAAAIABpaylhCP1/3tgwAAO0mAAAGAAAAZzJkLnB5zVltc9s2Ev6uX4Ew4ymZypTstL2OYmXqOPFcZtqrJ3Hnrud6WIoEJSQUwYKgZLWT/367C4IE9eLY6ZdTJhYJ7C4Wu88udqGnT0Z1pUYzUYx4sWLlRi9k8Xzged7gh7iGF8XYTyJZ8Jyza7mMRS1zyY7ZQutyMhqt1+sw4WFdiFKFQo9KLsucjzRQLkUy+CEXCS8qYF2IilUy0+tYcQbPmeK8L2Ze1KFU81HDUo3mZR4u9DInZQb4xKYMns+evP754vrXqzcMx14OzswXg8/ZgsepeaRXLXTOXx4dvb949/bq+ujobGRGOool1zFLFrGquJ56v1xfHn/vOdNVokSpWaWSqYe6VqBskhbhhyrluVipsOCw6Y1MRcpHKV+NsjrP7QBQeS/PRkbG54V+qMIkl3Wa5WCjMJHLUfwhvgN7zKrRKyXXFVeX70en4Tgcj2bmPavCpSj2rHM26ixxNpPpxlk+iYtVXDGRTr35aXpsXj1W6U3Op95MqpSrCTsp78BhuUhZJfIVV7iCIXVEzdTLM83vNCgck8BEFsDEPYb6Tb1vPZbIHB/GMAQaySLfbK80RtFWyo6ZuoG42hQJy+oi0UIWDLBY+AH7q51fiyKV6zCPi3kdz/lVXs9F8Ysi1IStk7wXLUPONWuGgSZex0KzXMbplRnzg47UelTVxRWFiP97O4cfsSyl0mwWV/y7b4ZMyCH7UA2ZhP/VotYih+8NvPwpykzkvMcbl2WUxgDDKfvqq6+Ojl6fX58fHcFjj2ot9MKyh/8V5SV8+0KGrzaaV29/9s3S4ey7b1KeSNDeig2CIfOUF4D9kD9SPJv0JOOnmQjBCypOdJznftDfYAabCctYL4BGVLryETyRtUu58YJdqWbrAOVyg2rvsIBiMELMPV4wlVkK9sCL1PdCIOhRpDxjayU092mLu0s3QASbQlilMqmXvNDhnOs3OcfHV5u3INfCNTjEH67ivObs6ymAVpm1DpICXmWeX8sSFu2P/ZOL+ULvbLHSqax1SPsAnmaIK9UO0XfL9/uQ/cXmuZzFeTVpIdkM4N58LxWJ9gIIi0/MQS+GCtgdBFqmy/chhiOByOvyo4cr8ALwI4r5hHm1zr732Kd7A6ER7tB86q/sxtF2ljKpCbIVpnDK8+jZKFbJQqx4VCr5gSfabxz8FGFYSM1EwZoMSCHF9IKz9QL9DYhhmczBisSxJy4pJjEW13zmCmnjEmNhVmcZV2AwJ8KM5/fGYccCkF57w47g7VX0+s3lj+fXb16bCHSCL4PDNRWqiJccVKpn8AxqIV+FO4R4W8f5R0J/H+AN7c3kFjT0CxJUIEszQWa6GU9ObkNRxXlRL/2gj9uWg1bbDZ89AnaJyFiZAatvs8MHCR5vd1U06z41qOLkKfQYBIiGMESTvCLnEBlkL9hRl8oMk2NeRDmFJGwobBKdF1eJEE0Mg+JRhGtHEXsCiT+KCJ+R16n/lJWKl1iHwMlfV1CrUCFBpgB4QMZBwwAO4zrXFmfdKQRpFSnxVIkge8E7VSmecw4BQlCMb2kJFOT+rdRrgoH0bRJArOarm/EtRGeZxwls7rffME2OvCCsylxAiMPjzfHJbU9OqUShfVSjY+xFtbNQ4JKYswYIwNiBwd4066DShUjY25Ch4HnFu/0YHVAODeFm4KSA2B0MtNpM9oUjHpFLAM3QphWKTJcSTyM+i5OPNJgp8JXNQFkmAHp4QiDgDXmcphFfAa6iHM4oXmA8Kr6UkEr6wwN+l/BSG612081gcAUw1uATXUM9e5NBWaDBPPh1O7iAEljtnWtJ3i6hArnIRdmSwfkxZCS1+bodDCJTUA1ZlOg7+AuVeKRF8hGY/iULsEb3dxAtZV2BipLIa6WijxyzGCjNV/SMuWA8ZGPwIxSzvv2ynBgrSHPj/cgz/arWWhYIrZ9Emua8e3+HZ1XzejuI8gQK8o+wjqIHEHAJpw1oRV+DCOrgeAPTeVzpKFMGySfj8ZiN2HNUB0RATcVTGP7rU5PfwSS+nhjLDNkKatjpMQIhFEWG7/Hd1L4G7PilITTOUlzXqjAjPjDC+XPnK1lDmbAKjKzAiAgoy60wmHVgFhaF0I3R/Ur8ySfWI1USA/JPaDE0t1nLHK1s203IaZMNnkZ+Q8Am91cbTrUdOOnUcveZEzifNW/4oVJp+La5QvDxudZKzGpIwp5Im6Lq+IEMVIsjDwbZnOw4WS8gob9ghzqBFwxAKLAGn8QzmKiR+M9jqL753QQ8/4IphNDkm3F594JpWdKTo4m7TSwAQszHWOc1KhpKNDbYxKoNxrzAM+MOjHGaepZm357WItULTHrgJ8il7Jlx730sC6rQLM/JDo++C+ndp79DdzLJeawsqJrcxwFlmCR8/+T0H0Nm/wRWnA3fkJj9Bp0dG/2dMEo0W5hM0CYYP0QD8TVkp99+G7CvmQ/fQ1dhreRH/h4djIeVms9iD8iwkE1uJs9vkSW5ge8RI06HFXJ8bhm3ZRld+7vuq0gcRPAOs+mYlLR2J+d0r8bwjQFSFa8hRRfcL/VJG5ulPm2fiXsnTmlB5Ps3TmPdjN/d1IxDJ3gFCcV39oinwrX0n8FSQV+KGT0N3M3Iim8LMDbxg/0qnDhbSgQkT+4nAHgMqGYvKk5FDYU8vGzth845TID2XCvFZzYDJ5j/zMi3gg00AMil+NxO0N2+6wOFfoMo7/Jjlyz32R4FkK+f0fn0DMldeRS2+g5SPh2Du5IPyZV0CCNkSSRA1sNsFBfVMRQlImu6eSLGRbCWRC8g4Jd0sHl9gvNczAucNcby+nu4bvSELYCO7g5KmW/m0O2UqDVoj4XEjTnHm1QOh0Ez6aTcPf7aBSBxQaIKsDY9qbSR02sTaARPsob4ZHLbryT74CU/9VdzHI/LzCXDjA/pec+KO6DAEzwSWNP4lUrIi+Qu+G43DxO2N2tO/E5DsZyb443qorDga8cYMBki8xRFdKPmbIUhCLRY6QrLap/uy7bboba8dD9dFQ4i8AZktrcC31XCwy5/QpsdlcX8RVOsYurcaUwy6qIP9SL249aaB9a014AAeGi9MxnOQf16Fgo5qkrsr6oR5W7HQI2Rb2AM20AQ5tZHSNmht++6fgBCWVdG3cDU1Jw06kQ9DW+FqMhaZhYXqcPTRxKqQI73rc59PAW3EG9Wkn1EOSYM3ZF9jcfD1+himibjOhXyywANrAbQ5yhjC9Aw+fcA/QjsdmsZ3NKeRsuS/13gbsEL5O6FF3SSmy1DDsG6spxSf7CFGCLEmsL1Ucsd3HZEIcoASvxyRnE5m5TKGNuaPU78ovVImhXd9lqmtKEI6LUfXTdmGOoSrM8P1EO2jWg7NWyX+m2VOYbcVg57t65Q7C43DKOL/raYTAWUpQrKaKfhw2PF8Wmvh2tlqkfKPHVl9vvCxn5454Ku87GdbVJKVlbT5+MDtrFtpG2BjUFotOsnQYIZdxrllhiCUfE/al7p8wLCHvuTS2xHfWzr7zZE35nReMoJ6J2bA3+7TYFABJOkco1tMl79RM1r8HgpdenIqMt7JbTtp5eBoMoy0ssDGcl5WG9Y5nbgMQLcrbcDjxHQ7bp5fSAzIcyyGgw/lNO0jGD92vKrhr9pY2T1ubBtu/8+Nrcuaw4iy3Y6eONY2AuB0NxKXSxEvtX2OiyuZPzs1Dl7r7a+BLePFXYQvvtKnTKumiwJxJjjKkCOD89dxp5JmffyK8zSudsmInbspMdOmuLQZj5cXJdgjx3ZDRTgFbeOIwYKVOODzNueLBztZWZzGIFkAaB+IHurSO/AIWTCZg5uotvvTo53xND1yxcLO7XCyL+IcL+Q64m52TwQIt3l32AHqBgTNlb6wKCKaI2ucC4PX06btL9b6/TvGIF1l8IutPXrJX62juje/MPPjm2AtxfUId1/RzCPRYTD5/zqhlfW5l7PzPutiV2TN9HpQ+kNelE8bpl9274cr/RB7KTx7l5NKQwPO4TjLRyu9dr88AG4eepMVlqWV0qW8Zys09gP4woqz/clGUF5RhkahWH4h5W6Gdm++YK0jUHbnsiW6QrrMOfXmn6G7pupLu8x0v/HNm39RFvtlKfD+x7lGz92DO2BfQ+TjcauNiUD7rtdvu9quu3tDOOTqbOE0S3BS5nuXvYV3hqLYn6RCxD4zvyC0oZkqw02qYX2eZgQ3X8g8FFUmPNMB8Pe3K92DtwRbFvhM8HROIb1khr+UMDDGf2qMWSnTeXfD7edhe6F1xcsg/LcRUwl8wCH5k6P0I+gvaV+V+Zfq9pk5Ke7uB8cQnynoHqoguphCtq+oesZWgUfo1+cc6UNoOlxAFVeJtTSDDUvA8iwy7IhM8+D/wFQSwMEFAAAAAgAQlrKWNNTtdpxAAAAggAAAAgAAABpbnRyby5weR2MQQrDIBBF955i6iZKJUgo3ZVse4Muw9BKIqgzqCn09lU3/y3e4/vIlCvsy0eINrNPvm5vTF8sSt2tNXCzVmshEkYHjx7OnClyVfJ1YJ0K/OjM0PUq9fjA4HLTTxcCGZBwHbZBXloxkog+bYGIlf4DUEsBAhQDFAAAAAgAGlrKWEI/X/e2DAAA7SYAAAYAAAAAAAAAAAAAAO2BAAAAAGcyZC5weVBLAQIUAxQAAAAIAEJayljTU7XacQAAAIIAAAAIAAAAAAAAAAAAAACkgdoMAABpbnRyby5weVBLBQYAAAAAAgACAGoAAABxDQAAAAA='''
+            with zipfile.ZipFile(io.BytesIO(base64.b64decode(app_data)), "r") as zip_ref:
+                zip_ref.extractall()
+            if os.path.exists("g2d_pyodide.py"):
+                shutil.copyfile("g2d_pyodide.py", "g2d.py")
+            sys.path.append(".")
+
+            def write(data):
+                console = js.document.getElementById("console")
+                console.value += str(data)
+                console.scrollTop = console.scrollHeight
+            sys.stdout.write = sys.stderr.write = write
+        `, { globals: pyodide.globals.get("dict")() } );
+        main_py = pyodide.FS.readFile("intro.py", { encoding: "utf8" });
+        pyodide.runPython(main_py);
+        };
+        main();
+        </script>
+    </body>
+</html>
