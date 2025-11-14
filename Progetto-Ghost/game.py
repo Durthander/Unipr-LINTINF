@@ -1,8 +1,8 @@
 from random import randint
 
-from actor import Actor, Arena
+from actor import Actor, Arena, check_collision
 
-# --- Parametri del mondo e della vista ---
+# Mondo e Vista
 ARENA_W, ARENA_H = 3569, 224
 VIEW_W, VIEW_H = 600, 224
 view_x, view_y = 0, 0
@@ -13,83 +13,114 @@ class Arthur(Actor):
         self._x, self._y = pos
         self._dx = 4
         self._dy = 0
+        self._gravity = 0.5
+        self._jump_strength = -10
+        self._run_tick = 0
+        self._bottom_y = self._y + 31  # Posizione fondo
         self._state = "Idle"
-        self.on_ground = True
-        self.gravity = 0.5
-        self.jump_strength = -7
-        self.facing = "right"
-        self.run_tick = 0
-        self._w, self._h = 20, 31
-
+        self._facing = "right"
+        self._on_ground = False
+    
     def move(self, arena: Arena):
         keys = arena.current_keys()
         aw, ah = arena.size()
         moving = False
-        old_y = self._y
-        _, prev_h = self.size()
+        
+        # Stato precedente
+        old_bottom = self._bottom_y
+        _, old_h = self.size()
 
+        # Movimento orizzontale
         if "ArrowLeft" in keys:
             self._x -= self._dx
-            self.facing = "left"
+            self._facing = "left"
             moving = True
         if "ArrowRight" in keys:
             self._x += self._dx
-            self.facing = "right"
+            self._facing = "right"
             moving = True
 
-        if "ArrowDown" in keys and self.on_ground:
-            if self._state != "Crouch":
-                self._y += (self._h - 22)
-                self._h = 22
+        # Clamp orizzontale
+        w, _ = self.size()
+        self._x = max(0, min(self._x, aw - w))
+
+        # Crouch
+        if "ArrowDown" in keys and self._on_ground:
             self._state = "Crouch"
-        else:
-            if self._state == "Crouch":
-                self._y -= (31 - self._h)
-                self._h = 31
+        elif "ArrowUp" in keys and self._on_ground:
+            self._dy = self._jump_strength
+            self._on_ground = False
+            self._state = "Jumping"
+        elif self._on_ground:
+            moving = "ArrowLeft" in keys or "ArrowRight" in keys
+            self._state = "Running" if moving else "Idle"
 
-            if "ArrowUp" in keys and self.on_ground:
-                self._dy = self.jump_strength
-                self.on_ground = False
-                self._state = "Jumping"
-            elif moving and self.on_ground:
-                self._state = "Running"
-            elif self.on_ground:
-                self._state = "Idle"
+        #  Gravità
+        self._dy += self._gravity
+        self._bottom_y += self._dy
 
-        if not self.on_ground:
-            self._dy += self.gravity
-            self._y += self._dy
-            if self._y >= ah - self._h:
-                self._y = ah - self._h
-                self._dy = 0
-                self.on_ground = True
-                self._state = "Idle"
-
-        self._x = max(0, min(self._x, aw - self._w))
-
-        if self._state == "Running":
-            self.run_tick = (self.run_tick + 1) % 16
-        else:
-            self.run_tick = 0
-
+        # Animazione corsa
+        self._run_tick = (self._run_tick + 1) % 12 if self._state == "Running" else 0
+        
+        # Posizione Y aggiornata in base allo sprite
         _, curr_h = self.size()
-        supported = False
-        for other in arena.collisions():
-            if isinstance(other, (Platform, Gravestone)):
-                prev_bottom = old_y + prev_h
-                curr_bottom = self._y + curr_h
-                platform_top = other.pos()[1]
+        self._y = self._bottom_y - curr_h
 
-                if self._dy >= 0 and prev_bottom <= platform_top <= curr_bottom:
-                    self._y = platform_top - curr_h
-                    self._dy = 0
-                    supported = True
-                    self.on_ground = True
-                    if self._state == "Jumping":
-                        self._state = "Idle"
+        #   Collisioni con Tombe e Piattafoorme
+        self._on_ground = False
+        
+        for other in arena.actors():
+            if isinstance(other, (Platform, Gravestone)) and check_collision(self, other):
+                ox, oy = other.pos()
+                ow, oh = other.size()
+                
+                # Calcolo dei centri per determinare la direzione della collisione
+                player_center_x = self._x + w / 2
+                player_center_y = self._bottom_y - curr_h / 2
+                other_center_x = ox + ow / 2
+                other_center_y = oy + oh / 2
+                
+                # Calcolo overlap su ogni asse
+                overlap_x = (w + ow) / 2 - abs(player_center_x - other_center_x)
+                overlap_y = (curr_h + oh) / 2 - abs(player_center_y - other_center_y)
+                
+                # Le piattaforme hanno solo collisione dall'alto
+                if isinstance(other, Platform):
+                    if old_bottom <= oy and self._dy > 0:
+                        self._bottom_y = oy
+                        self._y = self._bottom_y - curr_h
+                        self._dy = 0
+                        self._on_ground = True
+                        if self._state == "Jumping":
+                            self._state = "Idle"
+                
+                # Le tombe hanno collisione su tutti i lati
+                elif isinstance(other, Gravestone):
+                    # Risolvi la collisione sul lato con overlap minore
+                    if overlap_x < overlap_y:
+                        # Collisione laterale
+                        if player_center_x < other_center_x:
+                            # Collisione da sinistra
+                            self._x = ox - w
+                        else:
+                            # Collisione da destra
+                            self._x = ox + ow
+                    else:
+                        # Collisione verticale
+                        if player_center_y < other_center_y:
+                            # Collisione dall'alto (caduta sulla tomba)
+                            self._bottom_y = oy
+                            self._y = self._bottom_y - curr_h
+                            self._dy = 0
+                            self._on_ground = True
+                            if self._state == "Jumping":
+                                self._state = "Idle"
+                        else:
+                            # Collisione dal basso (saltando contro la tomba)
+                            self._bottom_y = oy + oh + curr_h
+                            self._y = self._bottom_y - curr_h
+                            self._dy = 0
 
-        if not supported and self._y < ah - self._h:
-            self.on_ground = False
 
     def pos(self):
         return self._x, self._y
@@ -97,44 +128,34 @@ class Arthur(Actor):
     def size(self):
         if self._state == "Idle":
             return (20, 31)
-
         if self._state == "Running":
-            frame = (self.run_tick // 4) % 4
-            if frame == 0: return (24, 28)
-            if frame == 1: return (19, 32)
-            if frame == 2: return (19, 31)
-            return (24, 29)
-
+            sizes = [(24, 28), (19, 32), (19, 31), (24, 29)]
+            return sizes[(self._run_tick // 3) % 4]
         if self._state == "Jumping":
-            if self._dy < -1: return (32, 27)
-            return (27, 26)
-
+            return (32, 27) if self._dy < -1 else (27, 26)
         if self._state == "Crouch":
             return (22, 22)
-
         return (20, 31)
 
     def sprite(self):
         if self._state == "Idle":
-            return (6, 43) if self.facing == "right" else (486, 43)
-
+            return (6, 43) if self._facing == "right" else (486, 43)
+        
         if self._state == "Running":
-            frame = (self.run_tick // 4) % 4
-            if self.facing == "right":
-                return [(40, 44), (66, 42), (88, 43), (109, 43)][frame]
-            else:
-                return [(449, 44), (427, 42), (405, 43), (379, 43)][frame]
-
+            frame = (self._run_tick // 3) % 4
+            right = [(40, 44), (66, 42), (88, 43), (109, 43)]
+            left = [(449, 44), (427, 42), (405, 43), (379, 43)]
+            return right[frame] if self._facing == "right" else left[frame]
+        
         if self._state == "Jumping":
             if self._dy < -1:
-                return (144, 29) if self.facing == "right" else (336, 29)
-            else:
-                return (180, 29) if self.facing == "right" else (305, 29)
-
+                return (144, 29) if self._facing == "right" else (336, 29)
+            return (180, 29) if self._facing == "right" else (305, 29)
+        
         if self._state == "Crouch":
-            return (223, 52) if self.facing == "right" else (267, 52)
-
-        return (20, 31)
+            return (223, 52) if self._facing == "right" else (267, 52)
+        
+        return (6, 43)
 
 
 class Zombie(Actor):
@@ -146,11 +167,46 @@ class Zombie(Actor):
         self._frame = 0
         self._walked = 0
         self._max_walk = randint(150, 300)
-        self._speed = 2
+        self._dx = 2
+    
+    def calculate_spawn_position(arthur_pos, arthur_size, arena_size):
+        """Calcola posizione e direzione di spawn per un nuovo zombie.
+        Restituisce (x, facing) oppure None se non può spawnare."""
+        ax, _ = arthur_pos
+        awidth, _ = arthur_size
+        aw, _ = arena_size
+        
+        # lato di spawn
+        can_spawn_left = ax - 50 > 0
+        can_spawn_right = ax + awidth + 50 < aw
+        
+        if not can_spawn_left and not can_spawn_right:
+            return None
+        
+        if can_spawn_left and can_spawn_right:
+            spawn_side = "left" if randint(0, 1) == 0 else "right"
+        elif can_spawn_left:
+            spawn_side = "left"
+        else:
+            spawn_side = "right"
+        
+        # posizione spawn
+        if spawn_side == "left":
+            offset = randint(50, min(200, int(ax)))
+            x = ax - offset
+            facing = "right"
+        else:
+            max_dist = aw - (ax + awidth)
+            offset = randint(50, min(200, int(max_dist)))
+            x = ax + offset
+            facing = "left"
+        
+        return (x, facing)
 
     def move(self, arena):
         aw, ah = arena.size()
         old_ground = self._ground_y
+        w, h = self.size()
 
         if self._state == "spawn":
             self._frame += 1
@@ -159,10 +215,9 @@ class Zombie(Actor):
                 self._frame = 0
 
         elif self._state == "walk":
-            self._x += self._speed if self._facing == "right" else -self._speed
-            self._walked += self._speed
+            self._x += self._dx if self._facing == "right" else -self._dx
+            self._walked += self._dx
             self._frame = (self._frame + 1) % 30
-
             if self._walked >= self._max_walk:
                 self._state = "sink"
                 self._frame = 0
@@ -173,21 +228,17 @@ class Zombie(Actor):
                 arena.kill(self)
                 return
 
-        w, h = self.size()
+        # Limiti orizzontali
         self._x = max(0, min(self._x, aw - w))
-        self._ground_y = min(max(h, self._ground_y), ah)
 
-        supported = False
-        curr_bottom = self._ground_y
-        for other in arena.collisions():
+        # Gravità e collisione Tombe e Piattaforme
+        self._ground_y = ah
+        for other in arena.actors():
             if isinstance(other, (Platform, Gravestone)):
-                platform_top = other.pos()[1]
-                if old_ground <= platform_top <= curr_bottom:
-                    self._ground_y = min(self._ground_y, platform_top)
-                    supported = True
-
-        if not supported:
-            self._ground_y = ah
+                ox, oy = other.pos()
+                ow, _ = other.size()
+                if self._x + w > ox and self._x < ox + ow and old_ground <= oy:
+                    self._ground_y = min(self._ground_y, oy)
 
     def pos(self):
         _, h = self.size()
@@ -195,45 +246,38 @@ class Zombie(Actor):
 
     def size(self):
         if self._state == "spawn":
-            if self._frame <= 4: return (16, 9)
-            if self._frame <= 9: return (25, 12)
+            if self._frame <= 4: 
+                return (16, 9)
+            if self._frame <= 9: 
+                return (25, 12)
             return (19, 24)
-
         if self._state == "walk":
-            if self._frame <= 9: return (22, 31)
-            if self._frame <= 19: return (19, 32)
+            if self._frame <= 9: 
+                return (22, 31)
+            if self._frame <= 19: 
+                return (19, 32)
             return (21, 31)
-
-        if self._frame <= 4: return (19, 24)
-        if self._frame <= 9: return (25, 12)
+        # sink
+        if self._frame <= 4: 
+            return (19, 24)
+        if self._frame <= 9: 
+            return (25, 12)
         return (16, 9)
 
     def sprite(self):
         if self._state == "spawn":
-            if self._frame <= 4:
-                right, left = (778, 88), (512, 88)
-            elif self._frame <= 9:
-                right, left = (748, 85), (533, 85)
-            else:
-                right, left = (725, 73), (562, 73)
-
+            frames = [((778, 88), (512, 88)), ((748, 85), (533, 85)), ((725, 73), (562, 73))]
+            indice = 0 if self._frame <= 4 else (1 if self._frame <= 9 else 2)
         elif self._state == "walk":
-            if self._frame <= 9:
-                right, left = (699, 66), (585, 66)
-            elif self._frame <= 19:
-                right, left = (677, 65), (610, 65)
-            else:
-                right, left = (654, 66), (631, 66)
-
-        else:
-            if self._frame <= 4:
-                right, left = (725, 73), (562, 73)
-            elif self._frame <= 9:
-                right, left = (748, 85), (533, 85)
-            else:
-                right, left = (778, 88), (512, 88)
-
+            frames = [((699, 66), (585, 66)), ((677, 65), (610, 65)), ((654, 66), (631, 66))]
+            indice = 0 if self._frame <= 9 else (1 if self._frame <= 19 else 2)
+        else:  # sink
+            frames = [((725, 73), (562, 73)), ((748, 85), (533, 85)), ((778, 88), (512, 88))]
+            indice = 0 if self._frame <= 4 else (1 if self._frame <= 9 else 2)
+        
+        right, left = frames[indice]
         return right if self._facing == "right" else left
+
 
 
 class Platform:
@@ -253,68 +297,54 @@ class Platform:
 class Gravestone:
     def __init__(self, pos):
         self._x, self._y = pos
-        self._w, self._h = 24, 29
+        self._w, self._h = 16, 16
     
-    def move(self, arena: Arena): pass
-    def pos(self): return (self._x, self._y)
-    def size(self): return (self._w, self._h)
-    def sprite(self): return None
-
-
-def maybe_spawn_zombie():
-    if randint(1, 500) != 1: return
-
-    ax, _ = arthur.pos()
-    aw, ah = arena.size()
-    awidth, _ = arthur.size()
-
-    if ax - 50 > 0 and ax + awidth + 50 < aw:
-        spawn_side = "left" if randint(0, 1) == 0 else "right"
-    elif ax - 50 > 0:
-        spawn_side = "left"
-    elif ax + awidth + 50 < aw:
-        spawn_side = "right"
-    else:
-        return
-
-    if spawn_side == "left":
-        offset = randint(50, min(200, int(ax)))
-        zx = ax - offset
-        facing = "right"
-    else:
-        max_dist = aw - (ax + awidth)
-        offset = randint(50, min(200, int(max_dist)))
-        zx = ax + offset
-        facing = "left"
-
-    zy = ah - 31
-    arena.spawn(Zombie((zx, zy), facing))
+    def move(self, arena: Arena): 
+        pass
+    def pos(self): 
+        return (self._x, self._y)
+    def size(self): 
+        return (self._w, self._h)
+    def sprite(self): 
+        return None
 
 
 def tick():
-    global view_x, view_y
-
-    aw, ah = arena.size()
+    aw, _ = arena.size()
     ax, _ = arthur.pos()
+
 
     view_x = int(ax - VIEW_W / 2)
     view_x = max(0, min(view_x, aw - VIEW_W))
-    view_y = 0
+    
 
-    g2d.draw_image("ghosts-goblins-bg.png", (-view_x - 2, -10), (ARENA_W, ARENA_H))
+    sfondo = "https://raw.githubusercontent.com/fondinfo/sprites/main/ghosts-goblins-bg.png"
+    g2d.draw_image(sfondo, (-view_x - 2, -10), (ARENA_W, ARENA_H))
 
-    maybe_spawn_zombie()
+    # Spawn casuale zombie
+    if randint(1, 500) == randint(1,300):
+        spawn_data = Zombie.calculate_spawn_position(arthur.pos(), arthur.size(), arena.size())
+        if spawn_data:
+            x, facing = spawn_data
+
+            _, ah = arena.size()
+            ground_y = ah
+            for actor in arena.actors():
+                if isinstance(actor, Platform):
+                    px, py = actor.pos()
+                    pw, _ = actor.size()
+                    if px <= x <= px + pw:
+                        ground_y = min(ground_y, py)
+            
+            arena.spawn(Zombie((x, ground_y - 31), facing))
 
     for actor in arena.actors():
         sprite = actor.sprite()
-        x, y = actor.pos()
-        screen_pos = (x - view_x, y - view_y)
-        if sprite is not None:
+        if sprite != None:
             x, y = actor.pos()
-            g2d.draw_image("ghosts-goblins.png",screen_pos, sprite, actor.size())
-        else:
-            g2d.draw_rect(screen_pos, actor.size())
-
+            sprites = "https://raw.githubusercontent.com/fondinfo/sprites/refs/heads/main/ghosts-goblins.png"
+            g2d.draw_image("ghosts-goblins.png", (x - view_x, y), sprite, actor.size())
+        
     arena.tick(g2d.current_keys())
 
 
@@ -323,21 +353,43 @@ def main():
     import g2d
 
     arena = Arena((ARENA_W, ARENA_H))
-    arthur = Arthur((400, ARENA_H - 31))
+    
+    # Piattaforme
+    platforms = [
+        (1, 193, 1665, 48),
+        (1794, 193, 160, 48),
+        (1986, 193, 32, 48),
+        (2050, 193, 400, 48),
+        (2482, 193, 224, 48),
+        (2738, 193, 848, 48),
+        (595, 113, 125, 17),
+        (738, 113, 176, 17),
+        (930, 113, 143, 17),
+        (1090, 113, 44, 17)
+        ]                   
+
+    for p in platforms:
+        arena.spawn(Platform(p))
+    
+    
+    gravestones = [
+        (59 - 9, 177),
+        (251 - 9, 177),
+        (539 - 9, 177),
+        (763 - 9, 177),
+        (971 - 9, 177),
+        (1115 - 9, 177),
+        (1531 - 9, 177),
+        (875 - 9, 97),
+        ]
+
+    for g in gravestones:
+        arena.spawn(Gravestone(g))
+
+    # Spawn Arthur (posizione fissa sulla prima piattaforma)
+    arthur = Arthur((400, 161))  # 193 - 31 = 161
+    arthur._dy = 0.1
     arena.spawn(arthur)
-
-    # --- NUOVE PIATTAFORME ---
-    arena.spawn(Platform((1, 192, 1665, 48)))
-    arena.spawn(Platform((1794, 192, 160, 48)))
-    arena.spawn(Platform((1986, 192, 32, 48)))
-    arena.spawn(Platform((2050, 192, 400, 48)))
-    arena.spawn(Platform((2482, 192, 224, 48)))
-    arena.spawn(Platform((2738, 192, 848, 48)))
-
-    ground_grave_y = ARENA_H - 29
-    arena.spawn(Gravestone((200, ground_grave_y)))
-    arena.spawn(Gravestone((500, ground_grave_y)))
-    arena.spawn(Gravestone((750, ground_grave_y)))
 
     g2d.init_canvas((VIEW_W, VIEW_H))
     g2d.main_loop(tick)
