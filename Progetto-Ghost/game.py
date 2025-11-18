@@ -155,28 +155,43 @@ class Arthur(Actor):
         self._x = max(0, min(self._x, aw - w))
 
         # === INGRESSO IN SCALATA ===
-        # Ingresso normale dal basso con freccia SU
+       # === INGRESSO IN SCALATA ===
+        
+        # 1. Ingresso dal BASSO (Salire)
+        # Deve essere per terra, toccare la scala e premere SU
         if (not self._climbing and 
             self._on_ground and 
             self._on_ladder and 
             "ArrowUp" in keys):
 
-            self._climbing = True
-            self._state = "Climbing"
-            self._dy = 0
-            self._exiting_top = False
-            self._at_top = False
-            self._climb_tick = 0
-            self._climb_facing = self._facing
-            self._descending = False
+            # Recuperiamo dati della scala
+            lx, ly = self._ladder_obj.pos()
+            _, lh = self._ladder_obj.size()
             
-            # Centra perfettamente sulla scala
-            lx, _ = self._ladder_obj.pos()
-            lw, _ = self._ladder_obj.size()
-            self._x = lx + (lw - self.size()[0]) // 2
-            return
+            # Calcoliamo il punto medio della scala
+            ladder_center_y = ly + (lh / 2)
+
+            # LOGICA CORRETTA:
+            # Se i piedi di Arthur sono PIÙ IN BASSO del centro della scala,
+            # significa che è alla base della scala (o sul pavimento sotto di essa).
+            # Se fosse sulla piattaforma in cima, i piedi sarebbero più in alto del centro.
+            if self._bottom_y > ladder_center_y:
+                self._climbing = True
+                self._state = "Climbing"
+                self._dy = 0
+                self._exiting_top = False
+                self._at_top = False
+                self._climb_tick = 0
+                self._climb_facing = self._facing
+                self._descending = False
+                
+                # Centra perfettamente sulla scala
+                lx, _ = self._ladder_obj.pos()
+                lw, _ = self._ladder_obj.size()
+                self._x = lx + (lw - self.size()[0]) // 2
+                return
         
-        # Rientro dall'alto con freccia GIÙ
+        # 2. Ingresso dall'ALTO (Scendere)
         # Controlla se Arthur è vicino a una scala dall'alto
         if not self._climbing and self._on_ground and "ArrowDown" in keys:
             for other in arena.actors():
