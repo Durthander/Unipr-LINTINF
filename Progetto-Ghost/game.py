@@ -1,5 +1,4 @@
 from random import randint
-
 from actor import Actor, Arena, check_collision
 
 # Mondo e Vista
@@ -12,7 +11,7 @@ class Arthur(Actor):
     def __init__(self, pos):
         self._x, self._y = pos
         self._dx = 4
-        self._dy = 0
+        self._dy = 0.1
         self._gravity = 0.75
         self._jump_strength = -7
         self._run_tick = 0
@@ -32,7 +31,7 @@ class Arthur(Actor):
         self._exiting_top = False
         self._jump_running = False
         self._descending = False
-        self._at_top = False  # Nuova variabile per tracciare se siamo in cima
+        self._at_top = False
     
     def move(self, arena: Arena):
         keys = arena.current_keys()
@@ -47,7 +46,7 @@ class Arthur(Actor):
         
         aw, ah = arena.size()
         
-        # --- Controllo presenza scala (solo per rilevamento) ---
+        # --- Controllo presenza scala (Detection) ---
         self._on_ladder = False
         self._ladder_obj = None
         for other in arena.actors():
@@ -57,6 +56,7 @@ class Arthur(Actor):
                 px, py = self.pos()
                 pw, ph = self.size()
 
+                # Rileva sovrapposizione con la scala
                 if (px + pw > ox and px < ox + ow and 
                     py + ph > oy and py < oy + oh):
                     self._on_ladder = True
@@ -65,7 +65,6 @@ class Arthur(Actor):
         
         # --- Gestione arrampicata attiva ---
         if self._climbing:
-            # Se la scala è stata distrutta o rimossa
             if self._ladder_obj is None:
                 self._climbing = False
                 self._state = "Idle"
@@ -74,11 +73,13 @@ class Arthur(Actor):
             ladder_x, ladder_y = self._ladder_obj.pos()
             ladder_h = self._ladder_obj.size()[1]
             ladder_top = ladder_y
-            ladder_bottom = ladder_y + ladder_h
 
+            # Animazione automatica di uscita (Top Ladder) - RESA FLUIDA
             if self._exiting_top:
-                # Continua l'animazione di uscita
                 self._climb_tick += 1
+                self._y -= 2  
+                self._bottom_y = self._y + self.size()[1]
+
                 if self._climb_tick >= 12:
                     self._climbing = False
                     self._exiting_top = False
@@ -86,13 +87,16 @@ class Arthur(Actor):
                     self._state = "Idle"
                     self._on_ground = True
                     self._climb_tick = 0
+                    
+                    # Allineamento finale preciso
                     h = self.size()[1]
                     self._y = ladder_top - h
-                    self._bottom_y = self._y + h
+                    self._bottom_y = ladder_top
+                
                 self._dy = 0
                 return
 
-            # Movimento sulla scala
+            # Movimento manuale sulla scala
             moved = False
             if "ArrowUp" in keys:
                 self._y -= 2
@@ -100,13 +104,11 @@ class Arthur(Actor):
                 moved = True
                 self._descending = False
 
-                # Raggiunto il top → inizia animazione uscita
-                if self._y <= ladder_top + 5:
+                # Inizia uscita solo quando la testa spunta bene sopra
+                if self._y <= ladder_top - 8:
                     self._exiting_top = True
                     self._at_top = True
                     self._climb_tick = 0
-                    self._y = ladder_top - 15
-                    self._bottom_y = self._y + self.size()[1]
 
             if "ArrowDown" in keys:
                 self._y += 2
@@ -115,9 +117,9 @@ class Arthur(Actor):
                 self._descending = True
                 self._at_top = False
 
-                # Raggiunto y = 193 - 30 (top corner di Arthur a y = 193)
+                # Scendi dalla scala se tocchi il pavimento (193 è il suolo standard)
                 h = self.size()[1]
-                if self._y >= 193 - h:
+                if self._y + h >= 193:
                     self._climbing = False
                     self._descending = False
                     self._state = "Idle"
@@ -130,7 +132,6 @@ class Arthur(Actor):
                     self._at_top = False
                     return
 
-            # Se non si preme niente, stai fermo
             if not moved:
                 self._climb_tick = (self._climb_tick // 6) * 6
 
@@ -154,27 +155,16 @@ class Arthur(Actor):
         w, _ = self.size()
         self._x = max(0, min(self._x, aw - w))
 
-        # === INGRESSO IN SCALATA ===
-       # === INGRESSO IN SCALATA ===
-        
-        # 1. Ingresso dal BASSO (Salire)
-        # Deve essere per terra, toccare la scala e premere SU
+        # === INGRESSO IN SCALATA (Dal Basso) ===
         if (not self._climbing and 
             self._on_ground and 
             self._on_ladder and 
             "ArrowUp" in keys):
 
-            # Recuperiamo dati della scala
             lx, ly = self._ladder_obj.pos()
-            _, lh = self._ladder_obj.size()
-            
-            # Calcoliamo il punto medio della scala
+            lw, lh = self._ladder_obj.size() # Variabili definite qui
             ladder_center_y = ly + (lh / 2)
 
-            # LOGICA CORRETTA:
-            # Se i piedi di Arthur sono PIÙ IN BASSO del centro della scala,
-            # significa che è alla base della scala (o sul pavimento sotto di essa).
-            # Se fosse sulla piattaforma in cima, i piedi sarebbero più in alto del centro.
             if self._bottom_y > ladder_center_y:
                 self._climbing = True
                 self._state = "Climbing"
@@ -184,15 +174,10 @@ class Arthur(Actor):
                 self._climb_tick = 0
                 self._climb_facing = self._facing
                 self._descending = False
-                
-                # Centra perfettamente sulla scala
-                lx, _ = self._ladder_obj.pos()
-                lw, _ = self._ladder_obj.size()
                 self._x = lx + (lw - self.size()[0]) // 2
                 return
         
-        # 2. Ingresso dall'ALTO (Scendere)
-        # Controlla se Arthur è vicino a una scala dall'alto
+        # === INGRESSO IN SCALATA (Dall'Alto) ===
         if not self._climbing and self._on_ground and "ArrowDown" in keys:
             for other in arena.actors():
                 if isinstance(other, Ladder):
@@ -201,7 +186,6 @@ class Arthur(Actor):
                     px, py = self.pos()
                     pw, ph = self.size()
                     
-                    # Verifica se Arthur è sopra la scala (entro un margine orizzontale)
                     if (px + pw > lx and px < lx + lw and 
                         py + ph >= ly - 5 and py + ph <= ly + 15):
                         
@@ -214,8 +198,6 @@ class Arthur(Actor):
                         self._climb_facing = self._facing
                         self._descending = True
                         self._ladder_obj = other
-                        
-                        # Centra perfettamente sulla scala e posiziona appena sotto il top
                         self._x = lx + (lw - pw) // 2
                         self._y = ly + 2
                         self._bottom_y = self._y + ph
@@ -232,35 +214,30 @@ class Arthur(Actor):
         elif self._on_ground:
             self._state = "Running" if moving else "Idle"
         
-        # Cooldown lancio
         if self._throw_cd > 0:
             self._throw_cd -= 1
 
-        # Lancio torcia
-        if "f" in keys and self._throw_cd == 0:
+        # Lancio torcia (Solo se a terra)
+        if "f" in keys and self._throw_cd == 0 and self._on_ground:
             self._state = "Throw"
             self._throw_tick = 0
             self._throw_duration = 12
             w, h = self.size()
             start_x = self._x + w/2
             crouched_throw = ("ArrowDown" in keys)
-            start_y = self._y + 5 if not crouched_throw else self._y + h - 10
+            start_y = self._y + 5 if not crouched_throw else self._y + h - 20
             self._crouched_throw = crouched_throw
             arena.spawn(Torch((start_x, start_y), self._facing))
             self._throw_cd = 10
 
-        # Gravità
+        # Gravità e Fisica
         self._dy += self._gravity
         self._bottom_y += self._dy
-
-        # Animazione corsa
         self._run_tick = (self._run_tick + 1) % 12 if self._state == "Running" else 0
-        
-        # Aggiorna Y
         _, curr_h = self.size()
         self._y = self._bottom_y - curr_h
 
-        # Collisioni con piattaforme e lapidi
+        # Collisioni Terreno
         self._on_ground = False
         old_bottom = self._bottom_y - self._dy
 
@@ -330,8 +307,6 @@ class Arthur(Actor):
         if self._state == "Climbing":
             if self._exiting_top:
                 return (198, 132) if self._climb_facing == "right" else (292, 132) if self._climb_tick < 6 else (224, 133) if self._climb_facing == "right" else (266, 133)
-            
-            # Gestione animazione discesa
             frame = (self._climb_tick // 4) % 2
             if self._descending:
                 if self._climb_facing == "right":
@@ -384,19 +359,12 @@ class Zombie(Actor):
         ax, _ = arthur_pos
         awidth, _ = arthur_size
         aw, _ = arena_size
-        
         can_spawn_left = ax - 50 > 0
         can_spawn_right = ax + awidth + 50 < aw
-        
-        if not can_spawn_left and not can_spawn_right:
-            return None
-        
-        if can_spawn_left and can_spawn_right:
-            spawn_side = "left" if randint(0, 1) == 0 else "right"
-        elif can_spawn_left:
-            spawn_side = "left"
-        else:
-            spawn_side = "right"
+        if not can_spawn_left and not can_spawn_right: return None
+        if can_spawn_left and can_spawn_right: spawn_side = "left" if randint(0, 1) == 0 else "right"
+        elif can_spawn_left: spawn_side = "left"
+        else: spawn_side = "right"
         
         if spawn_side == "left":
             offset = randint(50, min(200, int(ax)))
@@ -407,12 +375,10 @@ class Zombie(Actor):
             offset = randint(50, min(200, int(max_dist)))
             x = ax + offset
             facing = "left"
-        
         return (x, facing)
 
     def move(self, arena):
         aw, ah = arena.size()
-        old_ground = self._ground_y
         w, h = self.size()
 
         if self._state == "spawn":
@@ -422,12 +388,47 @@ class Zombie(Actor):
                 self._frame = 0
 
         elif self._state == "walk":
-            self._x += self._dx if self._facing == "right" else -self._dx
-            self._walked += self._dx
-            self._frame = (self._frame + 1) % 30
-            if self._walked >= self._max_walk:
-                self._state = "sink"
-                self._frame = 0
+            dx = self._dx if self._facing == "right" else -self._dx
+            next_x = self._x + dx
+            
+            # Range di collisione orizzontale dopo il movimento
+            next_x_start = next_x
+            next_x_end = next_x + w
+            
+            # --- CONTROLLO BORDO/CONTINUITÀ PIATTAFORMA/SCALA (FIXED) ---
+            has_ground = False
+            
+            if self._ground_y >= ah:
+                has_ground = True
+            else:
+                # Ricerca di qualsiasi superficie sotto la nuova posizione orizzontale
+                for other in arena.actors():
+                    # Check contro Platform O Ladder
+                    if isinstance(other, (Platform, Ladder)): 
+                        ox, oy = other.pos()
+                        ow, _ = other.size()
+                        
+                        # 1. Check Orizzontale (Overlap dopo il movimento):
+                        # Verifica se il corpo dello zombie si sovrappone alla piattaforma (o scala)
+                        if next_x_start < ox + ow and next_x_end > ox:
+                            
+                            # 2. Check Verticale (Altezza):
+                            # Se la cima della superficie è all'altezza del terreno dello zombie (tolleranza 5px)
+                            if abs(oy - self._ground_y) < 5:
+                                has_ground = True
+                                break
+            
+            if not has_ground:
+                # Inverte la direzione se non c'è più terra alla stessa altezza
+                self._facing = "left" if self._facing == "right" else "right"
+            else:
+                # Movimento normale
+                self._x = next_x
+                self._walked += self._dx
+                self._frame = (self._frame + 1) % 30
+                if self._walked >= self._max_walk:
+                    self._state = "sink"
+                    self._frame = 0
 
         elif self._state == "sink":
             self._frame += 1
@@ -437,35 +438,21 @@ class Zombie(Actor):
 
         self._x = max(0, min(self._x, aw - w))
 
-        self._ground_y = ah
-        for other in arena.actors():
-            if isinstance(other, (Platform, Gravestone)):
-                ox, oy = other.pos()
-                ow, _ = other.size()
-                if self._x + w > ox and self._x < ox + ow and old_ground <= oy:
-                    self._ground_y = min(self._ground_y, oy)
-
     def pos(self):
         _, h = self.size()
         return self._x, self._ground_y - h
 
     def size(self):
         if self._state == "spawn":
-            if self._frame <= 4: 
-                return (16, 9)
-            if self._frame <= 9: 
-                return (25, 12)
+            if self._frame <= 4: return (16, 9)
+            if self._frame <= 9: return (25, 12)
             return (19, 24)
         if self._state == "walk":
-            if self._frame <= 9: 
-                return (22, 31)
-            if self._frame <= 19: 
-                return (19, 32)
+            if self._frame <= 9: return (22, 31)
+            if self._frame <= 19: return (19, 32)
             return (21, 31)
-        if self._frame <= 4: 
-            return (19, 24)
-        if self._frame <= 9: 
-            return (25, 12)
+        if self._frame <= 4: return (19, 24)
+        if self._frame <= 9: return (25, 12)
         return (16, 9)
 
     def sprite(self):
@@ -483,51 +470,134 @@ class Zombie(Actor):
         return right if self._facing == "right" else left
 
 
+class Eyeball(Actor):
+    def __init__(self, pos, target: Actor):
+        self._x, self._y = pos
+        self._w, self._h = 8, 8
+        tx, ty = target.pos()
+        tw, th = target.size()
+        target_center_x = tx + tw / 2
+        target_center_y = ty + th / 2
+        dx = target_center_x - self._x
+        dy = target_center_y - self._y
+        steps = max(abs(dx), abs(dy))
+        speed = 4
+        if steps > 0:
+            self._dx = (dx / steps) * speed
+            self._dy = (dy / steps) * speed
+        else:
+            self._dx, self._dy = 0, 0
+        self._facing = "right" if self._dx >= 0 else "left"
+
+    def move(self, arena: Arena):
+        aw, ah = arena.size()
+        self._x += self._dx
+        self._y += self._dy
+        if self._x < 0 or self._x > aw or self._y < 0 or self._y > ah:
+            arena.kill(self)
+            return
+        for other in arena.actors():
+            if isinstance(other, Arthur):
+                if check_collision(self, other):
+                    # arena.kill(other)
+                    # arena.kill(self)
+                    return
+
+    def pos(self): return self._x, self._y
+    def size(self): return self._w, self._h
+    def sprite(self):
+        # Reverse (X crescenti) -> Destra
+        if self._facing == "right": return (552, 219)
+        # Normal (X decrescenti) -> Sinistra
+        else: return (746, 219)
+
+
+class Plant(Actor):
+    def __init__(self, pos):
+        self._x, self._y = pos
+        self._w, self._h = 16, 25
+        self._shoot_timer = randint(60, 150)
+        self._facing = "left"
+        self._current_frame = 0
+        # "Reverse" (X crescenti) -> Destra
+        self._frames_right = [((564, 214), (16, 25)), ((582, 214), (16, 25)), ((600, 207), (16, 32)), ((618, 207), (16, 32)), ((636, 207), (16, 32))]
+        # "Normal" (X decrescenti) -> Sinistra
+        self._frames_left = [((726, 214), (16, 25)), ((708, 214), (16, 25)), ((690, 207), (16, 32)), ((672, 207), (16, 32)), ((654, 207), (16, 32))]
+
+    def move(self, arena: Arena):
+        arthur = None
+        for a in arena.actors():
+            if isinstance(a, Arthur):
+                arthur = a
+                break
+        
+        if arthur:
+            ax, _ = arthur.pos()
+            self._facing = "right" if ax > self._x else "left"
+            
+            # CONTROLLO RANGE: Spara solo se Arthur è entro 300px (VIEW_W/2)
+            dist_x = abs(self._x - ax)
+            if dist_x > VIEW_W / 2:
+                return
+
+        self._shoot_timer -= 1
+        if self._shoot_timer > 40: self._current_frame = 0
+        elif self._shoot_timer > 30: self._current_frame = 1
+        elif self._shoot_timer > 20: self._current_frame = 2
+        elif self._shoot_timer > 10: self._current_frame = 3
+        else: self._current_frame = 4
+
+        if self._shoot_timer <= 0:
+            if arthur: self.shoot(arena, arthur)
+            self._shoot_timer = randint(80, 180)
+
+    def shoot(self, arena, target_actor):
+        w, h = self.size()
+        spawn_y = self.pos()[1] + 10
+        spawn_x = self._x + w / 2
+        arena.spawn(Eyeball((spawn_x, spawn_y), target_actor))
+
+    def pos(self):
+        # Allineamento al terreno (32px è l'altezza massima)
+        max_h = 32
+        current_h = self.size()[1]
+        offset_y = max_h - current_h
+        return self._x, self._y + offset_y
+
+    def size(self):
+        frames = self._frames_right if self._facing == "right" else self._frames_left
+        return frames[self._current_frame][1]
+
+    def sprite(self):
+        frames = self._frames_right if self._facing == "right" else self._frames_left
+        return frames[self._current_frame][0]
+
+
 class Platform:
     def __init__(self, rect):
         self._x, self._y, self._w, self._h = rect
-    
-    def move(self, arena: Arena): 
-        pass
-    def pos(self): 
-        return (self._x, self._y)
-    def size(self): 
-        return (self._w, self._h)
-    def sprite(self): 
-        return None
-
+    def move(self, arena: Arena): pass
+    def pos(self): return (self._x, self._y)
+    def size(self): return (self._w, self._h)
+    def sprite(self): return None
 
 class Ladder:
     def __init__(self, pos):
         self._x, self._y = pos
         self._w, self._h = 16, 60
-    
-    def move(self, arena: Arena):
-        pass
-    
-    def pos(self):
-        return (self._x, self._y)
-    
-    def size(self):
-        return (self._w, self._h)
-    
-    def sprite(self):
-        return None
-
+    def move(self, arena: Arena): pass
+    def pos(self): return (self._x, self._y)
+    def size(self): return (self._w, self._h)
+    def sprite(self): return None
 
 class Gravestone:
     def __init__(self, pos):
         self._x, self._y = pos
         self._w, self._h = 16, 16
-    
-    def move(self, arena: Arena): 
-        pass
-    def pos(self): 
-        return (self._x, self._y)
-    def size(self): 
-        return (self._w, self._h)
-    def sprite(self): 
-        return None
+    def move(self, arena: Arena): pass
+    def pos(self): return (self._x, self._y)
+    def size(self): return (self._w, self._h)
+    def sprite(self): return None
 
 
 class Torch(Actor):
@@ -545,44 +615,34 @@ class Torch(Actor):
         if not self._alive:
             arena.kill(self)
             return
-
         self._x += self._dx
         self._dy += self._gravity
         self._y += self._dy
-
         self._frame = (self._frame + 1) % 4
-
-        px, py = self._x, self._y
-        pw, ph = self.size()
+        px, py, pw, ph = self._x, self._y, *self.size()
 
         for other in arena.actors():
             ox, oy = other.pos()
             ow, oh = other.size()
-
-            if isinstance(other, Zombie) and not self._killed:
+            # Aggiunto Plant per collisione torcia
+            if isinstance(other, (Zombie, Plant)) and not self._killed:
                 if px + pw > ox and px < ox + ow and py + ph > oy and py < oy + oh:
                     arena.kill(other)
                     self._killed = True
                     self._alive = False
                     return
-
             if isinstance(other, (Platform, Gravestone)):
                 if px + pw > ox and px < ox + ow and py + ph > oy and py < oy + oh:
-
                     if isinstance(other, Platform):
                         flame_center_x = self._x + pw / 2
                         arena.spawn(Flame((flame_center_x, oy)))
-
                     self._alive = False
                     return
 
-    def pos(self):
-        return (self._x, self._y)
-
+    def pos(self): return (self._x, self._y)
     def size(self):
         right_sizes = [(14, 13), (13, 15), (13, 15), (14, 13)]
         return right_sizes[self._frame]
-
     def sprite(self):
         right_frames = [(19, 401), (39, 399), (58, 399), (78, 399)]
         left_frames = [(479, 401), (460, 399), (441, 399), (420, 399)]
@@ -592,63 +652,44 @@ class Torch(Actor):
 class Flame(Actor):
     def __init__(self, pos):
         center_x, platform_y = pos
-        self._center_x = center_x
-        self._platform_y = platform_y
+        self._center_x, self._platform_y = center_x, platform_y
         self._tick = 0
-        self._alive = True
-        self._x_left = center_x
-        self._y_top = platform_y - 31
+        self._frames_data = [((117, 428), (32, 31)), ((153, 435), (24, 24)), ((210, 443), (16, 16)), ((229, 450), (10, 9))]
+        self._anim_speed = 4
+        self._max_duration = 12 * self._anim_speed
+        fw, fh = self._frames_data[0][1]
+        self._x_left, self._y_top = center_x - fw / 2, platform_y - fh
 
     def move(self, arena):
         self._tick += 1
-        if self._tick >= 60:
+        if self._tick >= self._max_duration:
             arena.kill(self)
             return
-
         fw, fh = self.size()
         self._y_top = self._platform_y - fh
         self._x_left = self._center_x - fw / 2
-        
         for other in arena.actors():
-            if isinstance(other, Zombie):
+            if isinstance(other, (Zombie, Plant)):
                 ox, oy = other.pos()
                 ow, oh = other.size()
-                if self._x_left + fw > ox and self._x_left < ox + ow and self._y_top + fh > oy and self._y_top < oy + oh:
+                if (self._x_left + fw > ox and self._x_left < ox + ow and 
+                    self._y_top + fh > oy and self._y_top < oy + oh):
                     arena.kill(other)
 
-    def pos(self):
-        return (self._x_left, self._y_top)
+    def _get_current_frame_index(self):
+        step = self._tick // self._anim_speed
+        if step < 8: return step % 2
+        else: return 2 + (step % 2)
 
-    def size(self):
-        sizes = [(32,31),(24,24),(16,16),(10,9)]
-        frame = self._tick % 12
-        if frame < 4:
-            return sizes[0]
-        elif frame < 8:
-            return sizes[1]
-        elif frame < 10:
-            return sizes[2]
-        else:
-            return sizes[3]
-
-    def sprite(self):
-        frames = [(117,428),(153,435),(210,443),(229,450)]
-        frame = self._tick % 12
-        if frame < 4:
-            return frames[0]
-        elif frame < 8:
-            return frames[1]
-        elif frame < 10:
-            return frames[2]
-        else:
-            return frames[3]
+    def pos(self): return (self._x_left, self._y_top)
+    def size(self): return self._frames_data[self._get_current_frame_index()][1]
+    def sprite(self): return self._frames_data[self._get_current_frame_index()][0]
 
 
 def tick():
     global view_x
     aw, _ = arena.size()
     ax, _ = arthur.pos()
-
     view_x = int(ax - VIEW_W / 2)
     view_x = max(0, min(view_x, aw - VIEW_W))
     
@@ -659,7 +700,6 @@ def tick():
         spawn_data = Zombie.calculate_spawn_position(arthur.pos(), arthur.size(), arena.size())
         if spawn_data:
             x, facing = spawn_data
-
             _, ah = arena.size()
             ground_y = ah
             for actor in arena.actors():
@@ -668,7 +708,6 @@ def tick():
                     pw, _ = actor.size()
                     if px <= x <= px + pw:
                         ground_y = min(ground_y, py)
-            
             arena.spawn(Zombie((x, ground_y - 31), facing))
 
     for actor in arena.actors():
@@ -687,51 +726,30 @@ def main():
     arena = Arena((ARENA_W, ARENA_H))
     
     platforms = [
-        (1, 193, 1665, 48),
-        (1794, 193, 160, 48),
-        (1986, 193, 32, 48),
-        (2050, 193, 400, 48),
-        (2482, 193, 224, 48),
-        (2738, 193, 848, 48),
-        (595, 113, 125, 17),
-        (738, 113, 176, 17),
-        (930, 113, 143, 17),
-        (1090, 113, 44, 17)
+        (1, 193, 1665, 48), (1794, 193, 160, 48), (1986, 193, 32, 48),
+        (2050, 193, 400, 48), (2482, 193, 224, 48), (2738, 193, 848, 48),
+        (595, 113, 125, 17), (738, 113, 176, 17), (930, 113, 143, 17), (1090, 113, 44, 17)
     ]                   
-
-    for p in platforms:
-        arena.spawn(Platform(p))
+    for p in platforms: arena.spawn(Platform(p))
     
     gravestones = [
-        (59 - 10, 177),
-        (251 - 10, 177),
-        (539 - 10, 177),
-        (763 - 10, 177),
-        (971 - 10, 177),
-        (1115 - 10, 177),
-        (1531 - 10, 177),
-        (875 - 10, 97),
+        (59 - 10, 177), (251 - 10, 177), (539 - 10, 177), (763 - 10, 177),
+        (971 - 10, 177), (1115 - 10, 177), (1531 - 10, 177), (875 - 10, 97),
     ]
-
-    for g in gravestones:
-        arena.spawn(Gravestone(g))
+    for g in gravestones: arena.spawn(Gravestone(g))
     
-    stairs = [
-        (722, 113),
-        (914, 113),
-        (1074, 113)
-    ]
-    
-    for s in stairs:
-        arena.spawn(Ladder(s))
+    stairs = [(722, 113), (914, 113), (1074, 113)]
+    for s in stairs: arena.spawn(Ladder(s))
 
-    arthur = Arthur((400, 161))
-    arthur._dy = 0.1
+    # Spawn Piante
+    plants_pos = [(880, 193 - 32)]
+    for p_pos in plants_pos: arena.spawn(Plant(p_pos))
+
+    arthur = Arthur((200, 161))
     arena.spawn(arthur)
 
     g2d.init_canvas((VIEW_W, VIEW_H), 2)
     g2d.main_loop(tick)
-
 
 if __name__ == "__main__":
     main()
