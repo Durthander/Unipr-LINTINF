@@ -1,10 +1,10 @@
 from random import randint
 from actor import Actor, Arena, check_collision
 
+
 # Mondo e Vista
 ARENA_W, ARENA_H = 3569, 224
 VIEW_W, VIEW_H = 600, 224
-view_x, view_y = 0, 0
 
 
 class Arthur(Actor):
@@ -32,8 +32,13 @@ class Arthur(Actor):
         self._jump_running = False
         self._descending = False
         self._at_top = False
+        self._lives = 3
+        self._blinking = 0
     
     def move(self, arena: Arena):
+        if self._blinking > 0:
+            self._blinking -= 1
+            
         keys = arena.current_keys()
         
         # Blocca durante animazione lancio
@@ -155,6 +160,9 @@ class Arthur(Actor):
         w, _ = self.size()
         self._x = max(0, min(self._x, aw - w))
 
+        # Memorizza posizione Y prima del movimento verticale
+        old_y = self._y
+
         # === INGRESSO IN SCALATA (Dal Basso) ===
         if (not self._climbing and 
             self._on_ground and 
@@ -213,7 +221,7 @@ class Arthur(Actor):
             self._jump_running = moving
         elif self._on_ground:
             self._state = "Running" if moving else "Idle"
-        
+        # Cooldown lancio
         if self._throw_cd > 0:
             self._throw_cd -= 1
 
@@ -234,11 +242,14 @@ class Arthur(Actor):
         self._dy += self._gravity
         self._bottom_y += self._dy
         self._run_tick = (self._run_tick + 1) % 12 if self._state == "Running" else 0
+        
+        # Calcola Y in base al nuovo bottom e all'altezza corrente dello sprite
         _, curr_h = self.size()
         self._y = self._bottom_y - curr_h
 
         # Collisioni Terreno
         self._on_ground = False
+        # VECCHIO fondo prima del movimento verticale
         old_bottom = self._bottom_y - self._dy
 
         for other in arena.actors():
@@ -280,6 +291,17 @@ class Arthur(Actor):
                             self._y = self._bottom_y - curr_h
                             self._dy = 0
 
+    def hit(self, arena):
+        """Gestione danni ricevuti da nemici"""
+        if self._blinking == 0:
+            self._blinking = 60
+            self._lives -= 1
+            if self._lives <= 0:
+                arena.kill(self)
+
+    def lives(self) -> int:
+        return self._lives
+
     def pos(self):
         return self._x, self._y
 
@@ -304,6 +326,10 @@ class Arthur(Actor):
         return (20, 31)
 
     def sprite(self):
+        # Effetto blinking quando danneggiato
+        if self._blinking > 0 and self._blinking % 4 < 2:
+            return None
+            
         if self._state == "Climbing":
             if self._exiting_top:
                 return (198, 132) if self._climb_facing == "right" else (292, 132) if self._climb_tick < 6 else (224, 133) if self._climb_facing == "right" else (266, 133)
@@ -343,6 +369,7 @@ class Arthur(Actor):
             return (223, 52) if self._facing == "right" else (267, 52)
         
         return (6, 43)
+
 
 class Zombie(Actor):
     def __init__(self, pos, facing):
@@ -395,7 +422,7 @@ class Zombie(Actor):
             next_x_start = next_x
             next_x_end = next_x + w
             
-            # --- CONTROLLO BORDO/CONTINUITÀ PIATTAFORMA/SCALA (FIXED) ---
+            # --- CONTROLLO BORDO/CONTINUITÀ PIATTAFORMA/SCALA ---
             has_ground = False
             
             if self._ground_y >= ah:
@@ -409,17 +436,15 @@ class Zombie(Actor):
                         ow, _ = other.size()
                         
                         # 1. Check Orizzontale (Overlap dopo il movimento):
-                        # Verifica se il corpo dello zombie si sovrappone alla piattaforma (o scala)
                         if next_x_start < ox + ow and next_x_end > ox:
                             
                             # 2. Check Verticale (Altezza):
-                            # Se la cima della superficie è all'altezza del terreno dello zombie (tolleranza 5px)
                             if abs(oy - self._ground_y) < 5:
                                 has_ground = True
                                 break
             
             if not has_ground:
-                # Inverte la direzione se non c'è più terra alla stessa altezza
+                # Inverte la direzione se non c'è più terra
                 self._facing = "left" if self._facing == "right" else "right"
             else:
                 # Movimento normale
@@ -437,6 +462,12 @@ class Zombie(Actor):
                 return
 
         self._x = max(0, min(self._x, aw - w))
+        
+        # Controllo collisione con Arthur
+        for other in arena.actors():
+            if isinstance(other, Arthur):
+                if check_collision(self, other):
+                    other.hit(arena)
 
     def pos(self):
         _, h = self.size()
@@ -499,16 +530,14 @@ class Eyeball(Actor):
         for other in arena.actors():
             if isinstance(other, Arthur):
                 if check_collision(self, other):
-                    # arena.kill(other)
-                    # arena.kill(self)
+                    other.hit(arena)
+                    arena.kill(self)
                     return
 
     def pos(self): return self._x, self._y
     def size(self): return self._w, self._h
     def sprite(self):
-        # Reverse (X crescenti) -> Destra
         if self._facing == "right": return (552, 219)
-        # Normal (X decrescenti) -> Sinistra
         else: return (746, 219)
 
 
@@ -535,7 +564,7 @@ class Plant(Actor):
             ax, _ = arthur.pos()
             self._facing = "right" if ax > self._x else "left"
             
-            # CONTROLLO RANGE: Spara solo se Arthur è entro 300px (VIEW_W/2)
+            # CONTROLLO RANGE: Spara solo se Arthur è entro 300px
             dist_x = abs(self._x - ax)
             if dist_x > VIEW_W / 2:
                 return
@@ -581,6 +610,7 @@ class Platform:
     def size(self): return (self._w, self._h)
     def sprite(self): return None
 
+
 class Ladder:
     def __init__(self, pos):
         self._x, self._y = pos
@@ -589,6 +619,7 @@ class Ladder:
     def pos(self): return (self._x, self._y)
     def size(self): return (self._w, self._h)
     def sprite(self): return None
+
 
 class Gravestone:
     def __init__(self, pos):
@@ -686,70 +717,206 @@ class Flame(Actor):
     def sprite(self): return self._frames_data[self._get_current_frame_index()][0]
 
 
-def tick():
-    global view_x
-    aw, _ = arena.size()
-    ax, _ = arthur.pos()
-    view_x = int(ax - VIEW_W / 2)
-    view_x = max(0, min(view_x, aw - VIEW_W))
+# ========== GNGAME - Sottoclasse di Arena ==========
+class GngGame(Arena):
+    """Classe di gioco specializzata per Ghosts'n Goblins"""
     
-    sfondo = "https://raw.githubusercontent.com/fondinfo/sprites/main/ghosts-goblins-bg.png"
-    g2d.draw_image(sfondo, (-view_x - 2, -10), (ARENA_W, ARENA_H))
+    def __init__(self, time=180*30):  # 3 minuti = 180 secondi * 30 fps
+        super().__init__((ARENA_W, ARENA_H))
+        self._time = time  # Timer di gioco
+        self._load_level("/Users/thiam/Unipr-LINTINF/Progetto-Ghost/Gng_map.csv")
+        # View tracking
+        self._view_x = 0
+        
+    def _load_level(self, config_file):
+        """Carica il livello da file CSV"""
+    
+        with open(config_file, 'r') as f:
+            lines = f.readlines()
+            
+        for line in lines:
+            line = line.strip()
+            
+            parts = [p.strip() for p in line.split(',')]
+            entity_type = parts[0].lower()
+            
+            if entity_type == 'arthur':
+                # arthur, x, y
+                x, y = float(parts[1]), float(parts[2])
+                self._arthur = Arthur((x, y))
+                self.spawn(self._arthur)
+            
+            elif entity_type == 'platform':
+                # platform, x, y, width, height
+                x = float(parts[1])
+                y = float(parts[2])
+                w = float(parts[3])
+                h = float(parts[4])
+                self.spawn(Platform((x, y, w, h)))
+            
+            elif entity_type == 'gravestone':
+                # gravestone, x, y
+                x, y = float(parts[1]), float(parts[2])
+                self.spawn(Gravestone((x, y)))
+            
+            elif entity_type == 'ladder':
+                # ladder, x, y
+                x, y = float(parts[1]), float(parts[2])
+                self.spawn(Ladder((x, y)))
+            
+            elif entity_type == 'plant':
+                # plant, x, y
+                x, y = float(parts[1]), float(parts[2])
+                self.spawn(Plant((x, y)))
 
-    if randint(1, 500) == randint(1,300):
-        spawn_data = Zombie.calculate_spawn_position(arthur.pos(), arthur.size(), arena.size())
+    def get_arthur(self):
+        """Restituisce il riferimento ad Arthur"""
+        return self._arthur
+    
+    def get_view_x(self):
+        """Restituisce la posizione orizzontale della vista"""
+        return self._view_x
+    
+    def update_view(self):
+        """Aggiorna la posizione della camera seguendo Arthur"""
+        aw, _ = self.size()
+        ax, _ = self._arthur.pos()
+        self._view_x = int(ax - VIEW_W / 2)
+        self._view_x = max(0, min(self._view_x, aw - VIEW_W))
+    
+    def spawn_random_zombie(self):
+        """Spawn casuale di zombie"""
+        spawn_data = Zombie.calculate_spawn_position(
+            self._arthur.pos(), 
+            self._arthur.size(), 
+            self.size()
+        )
         if spawn_data:
             x, facing = spawn_data
-            _, ah = arena.size()
+            _, ah = self.size()
             ground_y = ah
-            for actor in arena.actors():
+            
+            # Trova la piattaforma più vicina sotto lo spawn
+            for actor in self.actors():
                 if isinstance(actor, Platform):
                     px, py = actor.pos()
                     pw, _ = actor.size()
                     if px <= x <= px + pw:
                         ground_y = min(ground_y, py)
-            arena.spawn(Zombie((x, ground_y - 31), facing))
+            
+            self.spawn(Zombie((x, ground_y - 31), facing))
+    
+    def lives(self) -> int:
+        """Restituisce le vite rimanenti di Arthur"""
+        if self._arthur:
+            return self._arthur.lives()
+        return 0
+    
+    def time(self) -> int:
+        """Restituisce il tempo rimanente in tick"""
+        return self._time - self.count()
+    
+    def game_over(self) -> bool:
+        """Verifica se il gioco è finito (sconfitta)"""
+        return self.lives() <= 0
+    
+    def game_won(self) -> bool:
+        """Verifica se il gioco è vinto (sopravvissuto 3 minuti)"""
+        return self.time() <= 0 and self.lives() > 0
 
-    for actor in arena.actors():
-        sprite = actor.sprite()
-        if sprite != None:
-            x, y = actor.pos()
-            g2d.draw_image("ghosts-goblins.png", (x - view_x, y), sprite, actor.size())
+
+# ========== GNGGUI - Interfaccia grafica ==========
+class GngGui:
+    """Classe per la rappresentazione grafica del gioco"""
+    
+    def __init__(self):
+        self._game = GngGame()
+        g2d.init_canvas((VIEW_W, VIEW_H), 2)
         
-    arena.tick(g2d.current_keys())
-
-
-def main():
-    global g2d, arena, arthur
-    import g2d
-
-    arena = Arena((ARENA_W, ARENA_H))
+        # Sprite per i numeri (0-9)
+        self._digit_sprites = {
+            '0': ((658, 685), (7, 8)),
+            '1': ((668, 685), (4, 8)),
+            '2': ((676, 685), (7, 8)),
+            '3': ((685, 685), (7, 8)),
+            '4': ((694, 685), (7, 8)),
+            '5': ((703, 685), (6, 8)),
+            '6': ((712, 685), (6, 8)),
+            '7': ((721, 685), (7, 8)),
+            '8': ((730, 685), (7, 8)),
+            '9': ((740, 685), (6, 8))
+        }
+        
+        g2d.main_loop(self.tick)
     
-    platforms = [
-        (1, 193, 1665, 48), (1794, 193, 160, 48), (1986, 193, 32, 48),
-        (2050, 193, 400, 48), (2482, 193, 224, 48), (2738, 193, 848, 48),
-        (595, 113, 125, 17), (738, 113, 176, 17), (930, 113, 143, 17), (1090, 113, 44, 17)
-    ]                   
-    for p in platforms: arena.spawn(Platform(p))
+    def _draw_number(self, number, x, y):
+        """Disegna un numero usando gli sprite"""
+        num_str = str(number)
+        current_x = x
+        for digit in num_str:
+            if digit in self._digit_sprites:
+                sprite_pos, sprite_size = self._digit_sprites[digit]
+                g2d.draw_image("ghosts-goblins.png", (current_x, y), sprite_pos, sprite_size)
+                current_x += sprite_size[0] + 1  # Spaziatura tra cifre
     
-    gravestones = [
-        (59 - 10, 177), (251 - 10, 177), (539 - 10, 177), (763 - 10, 177),
-        (971 - 10, 177), (1115 - 10, 177), (1531 - 10, 177), (875 - 10, 97),
-    ]
-    for g in gravestones: arena.spawn(Gravestone(g))
+    def _draw_hud(self):
+        """Disegna l'HUD con sprite (vite e tempo)"""
+        hud_y = 10
+        
+        # Disegna "TIME"
+        g2d.draw_image("ghosts-goblins.png", (10, hud_y), (624, 676), (32, 8))
+        
+        # Disegna il tempo rimanente (in secondi)
+        time_remaining = max(0, self._game.time() // 30)
+        self._draw_number(time_remaining, 45, hud_y)
+        
+        # Disegna le vite rimanenti come icone di Arthur
+        lives = self._game.lives()
+        lives_x_start = 10  # Posizione a destra
+        for i in range(lives):
+            x = lives_x_start + (i * 16)  # Spaziatura tra le icone
+            g2d.draw_image("ghosts-goblins.png", (x, 210), (696, 696), (13, 13))
     
-    stairs = [(722, 113), (914, 113), (1074, 113)]
-    for s in stairs: arena.spawn(Ladder(s))
+    def tick(self):
+        """Funzione chiamata ad ogni frame"""
+        view_x = self._game.get_view_x()
+        
+        # Disegna sfondo
+        sfondo = "https://raw.githubusercontent.com/fondinfo/sprites/main/ghosts-goblins-bg.png"
+        g2d.draw_image(sfondo, (-view_x - 2, -10), (ARENA_W, ARENA_H))
+        
+        # Spawn casuale zombie
+        if randint(1, 150) == 1:
+            self._game.spawn_random_zombie()
+        
+        # Disegna tutti gli attori
+        for actor in self._game.actors():
+            sprite = actor.sprite()
+            if sprite is not None:
+                x, y = actor.pos()
+                g2d.draw_image("ghosts-goblins.png", (x - view_x, y), sprite, actor.size())
+            # else:
+            #     # x, y = actor.pos()
+            #     # g2d.set_color((111,111,111))
+            #     # g2d.draw_rect((x - view_x, y), actor.size())
+            #     return
+        # Disegna HUD con sprite
+        self._draw_hud()
+        
+        # Verifica condizioni di fine gioco
+        if self._game.game_over():
+            g2d.alert("Game Over!")
+            g2d.close_canvas()
+        elif self._game.game_won():
+            g2d.alert("You Won!")
+            g2d.close_canvas()
+        else:
+            # Aggiorna logica di gioco
+            self._game.tick(g2d.current_keys())
+            self._game.update_view()
 
-    # Spawn Piante
-    plants_pos = [(880, 193 - 32)]
-    for p_pos in plants_pos: arena.spawn(Plant(p_pos))
 
-    arthur = Arthur((200, 161))
-    arena.spawn(arthur)
-
-    g2d.init_canvas((VIEW_W, VIEW_H), 2)
-    g2d.main_loop(tick)
-
+# ========== MAIN ==========
 if __name__ == "__main__":
-    main()
+    import g2d
+    gui = GngGui()
