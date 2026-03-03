@@ -35,7 +35,7 @@ def main():
     g2d.init_canvas((500,500))
     p = (500/2,500/2)
     r = float(input("Raggio: "))
-    MAX_level = 4
+    MAX_level = 6
     rec_circles(p, r, MAX_level)
     g2d.main_loop()
 

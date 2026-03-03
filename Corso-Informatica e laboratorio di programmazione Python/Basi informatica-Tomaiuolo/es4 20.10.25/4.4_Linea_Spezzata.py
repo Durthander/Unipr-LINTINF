@@ -1,5 +1,6 @@
-from math import sin, cos, radians
+from math import cos, radians, sin
 from random import randint
+
 import g2d
 
 Point = tuple[float, float]  # Pt in cartesian coords (x, y)
@@ -36,4 +37,5 @@ def main():
         p = randline(p)
     g2d.main_loop()
 
-main()
+if __name__ == "__main__":
+    main()
