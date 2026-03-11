@@ -1,0 +1,5 @@
+book 90 60
+pizza 20 50
+coffee 2 50
+laptop 1200 0
+cable 15 99
